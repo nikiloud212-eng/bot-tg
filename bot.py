@@ -9,7 +9,7 @@ from aiogram.types import Message
 from aiogram.exceptions import TelegramForbiddenError
 
 # Безопасное чтение токена из переменной окружения
-BOT_TOKEN = 8473568407:AAHDIUxnB2MZ39IylDYq8y4PFCK7KwLJzOw
+BOT_TOKEN = "8473568407:AAHDIUxnB2MZ39IylDYq8y4PFCK7KwLJzOw"
 OWNER_ID = 5136595663
 
 bot = Bot(token=BOT_TOKEN)
@@ -135,3 +135,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
