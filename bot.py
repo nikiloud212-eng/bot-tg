@@ -1,6 +1,5 @@
 # bot.py
 import os
-import random
 import asyncio
 import aiosqlite
 from aiogram import Bot, Dispatcher, types
@@ -15,7 +14,7 @@ OWNER_ID = 5136595663
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Инициализация базы
+# === База данных ===
 async def init_db():
     async with aiosqlite.connect("names.db") as db:
         await db.execute("""
@@ -45,12 +44,11 @@ async def cmd_myname(message: Message):
     if name:
         await message.reply(f"✨ Твоё имя: **{name}**", parse_mode="Markdown")
     else:
-        await message.reply("У тебя ещё нет имени. Админ может выдать его через `/setname`.")
+        await message.reply("У тебя ещё нет имени. Админ может выдать его через `/setname`.", parse_mode="Markdown")
 
 @dp.message(Command("getid"))
 async def cmd_getid(message: Message):
-    user = message.from_user
-    await message.reply(f"Ваш ID: `{user.id}`", parse_mode="Markdown")
+    await message.reply(f"Ваш ID: `{message.from_user.id}`", parse_mode="Markdown")
 
 @dp.message(Command("setname"))
 async def cmd_setname(message: Message, command: CommandObject):
@@ -69,16 +67,14 @@ async def cmd_setname(message: Message, command: CommandObject):
 
     args = command.args.split(maxsplit=1)
     if len(args) < 2:
-        await message.reply("❌ Укажи и цель (ID или @username), и имя.")
+        await message.reply("❌ Укажи и цель, и имя.")
         return
 
     target_str, name = args[0], args[1]
     user_id = None
 
-    # Попытка: числовой ID
     if target_str.isdigit():
         user_id = int(target_str)
-    # Попытка: @username
     elif target_str.startswith("@"):
         username = target_str[1:]
         try:
@@ -97,7 +93,11 @@ async def cmd_setname(message: Message, command: CommandObject):
 
     await set_name(user_id, name)
     try:
-        await bot.send_message(user_id, f"🎭 Админ выдал тебе имя: **{name}**", parse_mode="Markdown")
+        await bot.send_message(
+            user_id,
+            f"🎭 Админ выдал тебе имя: **{name}**",
+            parse_mode="Markdown"
+        )
     except TelegramForbiddenError:
         pass  # Пользователь не открыл ЛС
 
@@ -114,18 +114,58 @@ async def cmd_listnames(message: Message):
         await message.reply("Список имён пуст.")
         return
     text = "📋 Назначенные имена:\n"
-    for user_id, name in rows:
-        text += f"- `{user_id}` → {name}\n"
-    await message.reply(text, parse_mode="Markdown")
+    for uid, name in rows:
+        text += f"- `{uid}` → {name}\n"
+    await message.answer(text, parse_mode="Markdown")
 
-# Автоматически сохраняем всех, кто пишет (даже без имени)
+# === Зеркалирование сообщений (только в группах) ===
+
 @dp.message()
-async def auto_save_user(message: Message):
+async def mirror_message(message: Message):
+    # Игнорируем ЛС и сообщения от самого бота
+    if message.chat.type == "private" or message.from_user.id == bot.id:
+        return
+
     user = message.from_user
-    # Сохраняем, даже если имя пустое — для будущего /setname по ID
-    async with aiosqlite.connect("names.db") as db:
-        await db.execute("INSERT OR IGNORE INTO user_names (user_id, name) VALUES (?, '')", (user.id,))
-        await db.commit()
+
+    # Получаем выданное имя
+    game_name = await get_name(user.id)
+
+    # Fallback: если имя не задано — используем обычное имя или username
+    if not game_name:
+        real = (user.first_name or "") + (" " + (user.last_name or ""))
+        real = real.strip()
+        if not real:
+            real = f"@{user.username}" if user.username else "Аноним"
+        game_name = real
+
+    text = message.text or message.caption or ""
+
+    # Удаляем оригинал (требуются права админа)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    # Отправляем от имени бота
+    if message.content_type == "text":
+        await message.answer(f"**{game_name}**: {text}", parse_mode="Markdown")
+    elif message.content_type == "photo":
+        await message.answer_photo(
+            photo=message.photo[-1].file_id,
+            caption=f"**{game_name}**: {text}",
+            parse_mode="Markdown"
+        )
+    elif message.content_type == "video":
+        await message.answer_video(
+            video=message.video.file_id,
+            caption=f"**{game_name}**: {text}",
+            parse_mode="Markdown"
+        )
+    elif message.content_type == "sticker":
+        await message.answer(f"**{game_name}** отправил стикер")
+    else:
+        await message.answer(f"**{game_name}** отправил {message.content_type}")
 
 # === Запуск ===
 async def main():
@@ -135,4 +175,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
